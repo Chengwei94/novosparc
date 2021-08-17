@@ -15,7 +15,7 @@ import numpy as np
 import novosparc
 from ot.bregman import sinkhorn
 from ot.utils import dist
-
+from ot.gromov import entropic_gromov_wasserstein
 
 
 def tensor_square_loss_adjusted(C1, C2, T):
@@ -55,10 +55,10 @@ def tensor_square_loss_adjusted(C1, C2, T):
     T = np.asarray(T, dtype=np.float64)
 
     def f1(a):
-        return (a**2) / 2
+        return (a ** 2) / 2
 
     def f2(b):
-        return (b**2) / 2
+        return (b ** 2) / 2
 
     def h1(a):
         return a
@@ -66,15 +66,32 @@ def tensor_square_loss_adjusted(C1, C2, T):
     def h2(b):
         return b
 
-    tens = -np.dot(h1(C1), T).dot(h2(C2).T) 
+    tens = -np.dot(h1(C1), T).dot(h2(C2).T)
     tens -= tens.min()
 
+    sum_tens = np.sum(tens)
+
+    print(f"sum of tens = {sum_tens}")
+    print(tens.shape)
     return tens
 
 
-
-def gromov_wasserstein_adjusted_norm(cost_mat, C1, C2, alpha_linear,p, q, loss_fun, epsilon,
-                                     max_iter=1000, tol=1e-9, verbose=False, log=False, random_ini=False):
+def gromov_wasserstein_adjusted_norm(
+    cost_mat,
+    C1,
+    C2,
+    alpha_linear,
+    p,
+    q,
+    loss_fun,
+    epsilon,
+    max_iter=1000,
+    tol=1e-9,
+    verbose=False,
+    log=False,
+    random_ini=False,
+    iteration=100,
+):
     """
     Returns the gromov-wasserstein coupling between the two measured similarity matrices
 
@@ -132,46 +149,65 @@ def gromov_wasserstein_adjusted_norm(cost_mat, C1, C2, alpha_linear,p, q, loss_f
             \sum_{i,j,k,l} L(C1_{i,k},C2_{j,l})*T_{i,j}*T_{k,l}-\epsilon(H(T))
     """
 
-    C1 = np.asarray(C1, dtype=np.float64)
-    C2 = np.asarray(C2, dtype=np.float64)
-    cost_mat = np.asarray(cost_mat, dtype=np.float64)
-
-    T = novosparc.analysis.compute_random_coupling(p, q, epsilon) if random_ini else np.outer(p, q)  # Initialization
+    # C1 = np.asarray(C1, dtype=np.float64)
+    # C2 = np.asarray(C2, dtype=np.float64)
+    # cost_mat = np.asarray(cost_mat, dtype=np.float64)
 
     cpt = 0
     err = 1
-    
+
     try:
-            cost_mat_norm = cost_mat/ cost_mat.max()
+        cost_mat_norm = cost_mat / cost_mat.max()
     except:
-            cost_mat_norm = cost_mat
-            
-    if alpha_linear == 1:
-        T = sinkhorn(p, q, cost_mat_norm, epsilon)
-    else:        
-        while (err > tol and cpt < max_iter):
-            
+        cost_mat_norm = cost_mat
+
+    if alpha_linear == 0:
+        # if np.min(C1) < 0:
+        #     C1 -= np.min(C1)
+        # if np.min(C2) < 0:
+        #     C2 -= np.min(C2)
+        T = entropic_gromov_wasserstein(
+            C1,
+            C2,
+            p,
+            q,
+            loss_fun=loss_fun,
+            epsilon=epsilon,
+            verbose=verbose,
+            log=True,
+            max_iter=iteration,
+        )
+    elif alpha_linear == 1:
+        T = sinkhorn(p, q, cost_mat, epsilon, verbose=verbose)
+
+    else:
+        T = (
+            novosparc.analysis.compute_random_coupling(p, q, epsilon)
+            if random_ini
+            else np.outer(p, q)
+        )  # Initialization
+        while err > tol and cpt < max_iter:
+
             Tprev = T
 
-            if loss_fun == 'square_loss':
+            if loss_fun == "square_loss":
                 tens = tensor_square_loss_adjusted(C1, C2, T)
 
-            tens_all = (1-alpha_linear)*tens + alpha_linear*cost_mat_norm
+            tens_all = (alpha_linear) * tens + (1 - alpha_linear) * cost_mat_norm
             T = sinkhorn(p, q, tens_all, epsilon)
-        
+
             if cpt % 10 == 0:
-            # We can speed up the process by checking for the error only all
-            # the 10th iterations
+                # We can speed up the process by checking for the error only all
+                # the 10th iterations
                 err = np.linalg.norm(T - Tprev)
 
                 if log:
-                    log['err'].append(err)
+                    log["err"].append(err)
 
                 if verbose:
-                    if cpt % 200 == 0:
-                        print('{:5s}|{:12s}'.format(
-                                'It.', 'Err') + '\n' + '-' * 19)
-                        print('{:5d}|{:8e}|'.format(cpt, err))
+                    if cpt % 10 == 0:
+                        print("{:5s}|{:12s}".format("It.", "Err") + "\n" + "-" * 19)
+                        print("{:5d}|{:8e}|".format(cpt, err))
 
             cpt += 1
 
@@ -179,4 +215,3 @@ def gromov_wasserstein_adjusted_norm(cost_mat, C1, C2, alpha_linear,p, q, loss_f
         return T, log
     else:
         return T
-

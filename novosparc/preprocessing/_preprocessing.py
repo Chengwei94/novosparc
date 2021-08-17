@@ -28,6 +28,7 @@ def subsample_dataset(dataset, min_num_cells, max_num_cells=None):
     max_num_cells -- the maximum number of cells to keep.
     Returns the downsampled anndata object and the cell indices selected for further analysis."""
     num_cells_in_data = len(dataset.obs)
+    print("hello")
 
     if max_num_cells == None:
         max_num_cells = num_cells_in_data
